@@ -35,14 +35,59 @@ class Token(BaseModel):
 
 class SaleCreate(BaseModel):
     activity_id: int
-    cash_amount: Decimal
-    cc_amount: Decimal
-    currency: str
+    # Eski currency, cash_amount vs. SİLİNDİ. Yerine bunlar geldi:
+    try_cash: Optional[Decimal] = Decimal('0.00')
+    eur_cash: Optional[Decimal] = Decimal('0.00')
+    usd_cash: Optional[Decimal] = Decimal('0.00')
+    gbp_cash: Optional[Decimal] = Decimal('0.00')
+    
+    try_cc: Optional[Decimal] = Decimal('0.00')
+    eur_cc: Optional[Decimal] = Decimal('0.00')
+    usd_cc: Optional[Decimal] = Decimal('0.00')
+    gbp_cc: Optional[Decimal] = Decimal('0.00')
+
+    # Frontend'in o anki kurları da göndermesi gerekecek
+    eur_rate: Decimal
+    usd_rate: Decimal
+    gbp_rate: Decimal
+
+class ExpenseCreate(BaseModel):
+    category: str
+    description: Optional[str] = None
+    
+    try_cash: Optional[Decimal] = Decimal('0.00')
+    eur_cash: Optional[Decimal] = Decimal('0.00')
+    usd_cash: Optional[Decimal] = Decimal('0.00')
+    gbp_cash: Optional[Decimal] = Decimal('0.00')
+    
+    try_cc: Optional[Decimal] = Decimal('0.00')
+    eur_cc: Optional[Decimal] = Decimal('0.00')
+    usd_cc: Optional[Decimal] = Decimal('0.00')
+    gbp_cc: Optional[Decimal] = Decimal('0.00')
+
+    eur_rate: Decimal
+    usd_rate: Decimal
+    gbp_rate: Decimal
 
 class SaleResponse(BaseModel):
     id: int
-    message: str
+    company_id: int
+    activity_id: int
+    added_by_user_id: int
     status: str
+    is_cancelled: bool
+
+    try_cash: Decimal
+    eur_cash: Decimal
+    usd_cash: Decimal
+    gbp_cash: Decimal
+    try_cc: Decimal
+    eur_cc: Decimal
+    usd_cc: Decimal
+    gbp_cc: Decimal
+    eur_rate: Decimal
+    usd_rate: Decimal
+    gbp_rate: Decimal
 
 # Eksik olan ve sunucuyu çökerten şemalar:
 class SaleListResponse(BaseModel):
@@ -114,23 +159,25 @@ class ActivityResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class ExpenseCreate(BaseModel):
-    category: str # "yakıt", "mutfak", "kira" vb.
-    cash_amount: Decimal = Decimal('0.00')
-    cc_amount: Decimal = Decimal('0.00')
-    currency: str # "TRY", "USD", "EUR", "GBP"
-    description: Optional[str] = None
-
 class ExpenseResponse(BaseModel):
     id: int
     category: str
-    cash_amount: Decimal
-    cc_amount: Decimal
-    currency: str
     exchange_rate: Decimal
     description: Optional[str]
     is_cancelled: bool
     created_at: datetime
+
+    try_cash: Decimal
+    eur_cash: Decimal
+    usd_cash: Decimal
+    gbp_cash: Decimal
+    try_cc: Decimal
+    eur_cc: Decimal
+    usd_cc: Decimal
+    gbp_cc: Decimal
+    eur_rate: Decimal
+    usd_rate: Decimal
+    gbp_rate: Decimal
 
     class Config:
         from_attributes = True

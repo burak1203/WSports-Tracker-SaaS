@@ -1,34 +1,23 @@
 import { defineStore } from 'pinia'
 
 export const useAuthStore = defineStore('auth', {
-  state: () => ({
-    token: localStorage.getItem('token') || null,
-    user: JSON.parse(localStorage.getItem('user')) || null,
-  }),
-  
-  getters: {
-    isAuthenticated: (state) => !!state.token,
-    userRole: (state) => state.user?.role || null,
-  },
-  
-  actions: {
-    setAuth(token, user) {
-      this.token = token
-      this.user = user
-      localStorage.setItem('token', token)
-      localStorage.setItem('user', JSON.stringify(user))
-    },
-    
-    logout() {
-      this.token = null
-      this.user = null
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-    },
-    
-    updateUser(userData) {
-      this.user = { ...this.user, ...userData }
-      localStorage.setItem('user', JSON.stringify(this.user))
+    state: () => ({
+        // Sayfa yenilendiğinde token kaybolmasın diye localStorage'dan okuyoruz
+        token: localStorage.getItem('token') || null,
+        user: JSON.parse(localStorage.getItem('user')) || null
+    }),
+    actions: {
+        setAuth(token, user) {
+            this.token = token
+            this.user = user
+            localStorage.setItem('token', token)
+            localStorage.setItem('user', JSON.stringify(user))
+        },
+        logout() {
+            this.token = null
+            this.user = null
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+        }
     }
-  }
 })

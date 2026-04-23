@@ -68,32 +68,65 @@ class PercentageRule(Base):
     # Bir şirkette, bir aktivite için, aynı kullanıcıya iki farklı kural girilmesini engeller
     __table_args__ = (UniqueConstraint('company_id', 'activity_id', 'user_id', name='_company_activity_user_uc'),)
 
-
 class Sale(Base):
     __tablename__ = "sales"
 
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
-    added_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    activity_id = Column(Integer, ForeignKey("activities.id"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True)
+    activity_id = Column(Integer, ForeignKey("activities.id"))
+    added_by_user_id = Column(Integer, ForeignKey("users.id"))
     
-    cash_amount = Column(Numeric(12, 2), default=0.00)
-    cc_amount = Column(Numeric(12, 2), default=0.00)
-    currency = Column(String(3), nullable=False)
-    
-    # Finansal Bütünlük
-    exchange_rate = Column(Numeric(10, 4), nullable=False, default=1.0000)
+    # NAKİT ÖDEMELER
+    try_cash = Column(Numeric(10, 2), default=0)
+    eur_cash = Column(Numeric(10, 2), default=0)
+    usd_cash = Column(Numeric(10, 2), default=0)
+    gbp_cash = Column(Numeric(10, 2), default=0)
 
-    status = Column(String, default="pending", index=True) # "pending", "approved", "cancelled"
-    
-    # Soft Delete
-    is_cancelled = Column(Boolean, default=False, index=True)
-    cancelled_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    # KREDİ KARTI ÖDEMELERİ
+    try_cc = Column(Numeric(10, 2), default=0)
+    eur_cc = Column(Numeric(10, 2), default=0)
+    usd_cc = Column(Numeric(10, 2), default=0)
+    gbp_cc = Column(Numeric(10, 2), default=0)
 
+    # SATIŞ ANINDAKİ KURLAR (Geçmiş raporların bozulmaması için zorunlu)
+    eur_rate = Column(Numeric(10, 4), default=1)
+    usd_rate = Column(Numeric(10, 4), default=1)
+    gbp_rate = Column(Numeric(10, 4), default=1)
+
+    status = Column(String, default="pending") # pending, approved, cancelled
+    is_cancelled = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
     company = relationship("Company", back_populates="sales")
     earnings_logs = relationship("EarningsLog", back_populates="sale")
+
+class Expense(Base):
+    __tablename__ = "expenses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), index=True)
+    added_by_user_id = Column(Integer, ForeignKey("users.id"))
+    category = Column(String, index=True)
+    description = Column(String, nullable=True)
+
+    # NAKİT GİDERLER
+    try_cash = Column(Numeric(10, 2), default=0)
+    eur_cash = Column(Numeric(10, 2), default=0)
+    usd_cash = Column(Numeric(10, 2), default=0)
+    gbp_cash = Column(Numeric(10, 2), default=0)
+
+    # KREDİ KARTI GİDERLERİ
+    try_cc = Column(Numeric(10, 2), default=0)
+    eur_cc = Column(Numeric(10, 2), default=0)
+    usd_cc = Column(Numeric(10, 2), default=0)
+    gbp_cc = Column(Numeric(10, 2), default=0)
+
+    eur_rate = Column(Numeric(10, 4), default=1)
+    usd_rate = Column(Numeric(10, 4), default=1)
+    gbp_rate = Column(Numeric(10, 4), default=1)
+
+    is_cancelled = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=func.now())
+    company = relationship("Company", back_populates="expenses")
 
 
 class EarningsLog(Base):
@@ -114,26 +147,3 @@ class EarningsLog(Base):
     company = relationship("Company", back_populates="earnings_logs")
     sale = relationship("Sale", back_populates="earnings_logs")
     user = relationship("User", back_populates="earnings_logs")
-
-class Expense(Base):
-    __tablename__ = "expenses"
-
-    id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, index=True)
-    added_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    
-    category = Column(String, nullable=False) 
-    cash_amount = Column(Numeric(12, 2), default=0.00)
-    cc_amount = Column(Numeric(12, 2), default=0.00)
-    currency = Column(String(3), nullable=False)
-    exchange_rate = Column(Numeric(10, 4), nullable=False, default=1.0000)
-    
-    description = Column(String)
-    
-    # Soft Delete
-    is_cancelled = Column(Boolean, default=False, index=True)
-    cancelled_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-
-    company = relationship("Company", back_populates="expenses")

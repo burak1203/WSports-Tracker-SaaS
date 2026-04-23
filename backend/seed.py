@@ -1,9 +1,12 @@
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, engine, Base # engine ve Base eklendi
 from app.models.models import Company, User, Activity, PercentageRule
 from app.core.security import get_password_hash
 from decimal import Decimal
 
 def seed_database():
+    # 1. EN KRİTİK SATIR: Eğer tablolar yoksa, models.py'a bakıp hepsini sıfırdan yarat!
+    Base.metadata.create_all(bind=engine)
+    
     db = SessionLocal()
     try:
         # 1. Şirket Kontrolü (Varsa ekleme)

@@ -1,159 +1,152 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from decimal import Decimal
 from typing import List
+from decimal import Decimal
 
 from app.api.dependencies import get_db, get_current_active_user, RoleChecker
-from app.models.models import User, Sale, Activity, PercentageRule, EarningsLog
-from app.schemas.schemas import SaleCreate, SaleResponse, SaleListResponse, EarningsListResponse
+from app.models.models import Sale, User, Activity, PercentageRule, EarningsLog
+from app.schemas.schemas import SaleCreate, SaleResponse
 
 router = APIRouter(tags=["Sales"])
 
 # ==========================================
-# 1. REZERVASYON OLUŞTURMA (INFOCU & ADMIN)
+# 1. SATIŞ OLUŞTURMA (Herkes ekleyebilir)
 # ==========================================
-@router.post("/sales/", response_model=SaleResponse, dependencies=[Depends(RoleChecker(["infocu", "admin", "kasa"]))])
+@router.post("/sales/", response_model=SaleResponse, dependencies=[Depends(RoleChecker(["admin", "kasa", "infocu"]))])
 def create_sale(
-    sale_data: SaleCreate, 
-    db: Session = Depends(get_db), 
+    sale_in: SaleCreate,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    total_amount = sale_data.cash_amount + sale_data.cc_amount
-    if total_amount <= 0:
-        raise HTTPException(status_code=400, detail="Total amount must be greater than zero.")
+    activity = db.query(Activity).filter(Activity.id == sale_in.activity_id, Activity.company_id == current_user.company_id).first()
+    if not activity:
+        raise HTTPException(status_code=404, detail="Activity not found")
 
-    current_exchange_rate = Decimal('1.0000') # Dış servisten geldiği varsayılır
+    # Tüm tutarların 0 olup olmadığını kontrol et (Boş satış girilmesin)
+    total_input = (
+        sale_in.try_cash + sale_in.eur_cash + sale_in.usd_cash + sale_in.gbp_cash +
+        sale_in.try_cc + sale_in.eur_cc + sale_in.usd_cc + sale_in.gbp_cc
+    )
+    if total_input <= 0:
+        raise HTTPException(status_code=400, detail="Sale must contain at least one payment amount > 0")
 
-    activity = db.query(Activity).filter(Activity.id == sale_data.activity_id).first()
-    if not activity or not activity.is_active:
-        raise HTTPException(status_code=404, detail="Activity not found or inactive.")
-
-    # Sadece PENDING olarak kaydet. Komisyon yok, Bonus yok.
     new_sale = Sale(
         company_id=current_user.company_id,
-        added_by_user_id=current_user.id,
         activity_id=activity.id,
-        cash_amount=sale_data.cash_amount,
-        cc_amount=sale_data.cc_amount,
-        currency=sale_data.currency,
-        exchange_rate=current_exchange_rate,
-        status="pending" # STATÜ BEKLEMEDE
+        added_by_user_id=current_user.id,
+        
+        try_cash=sale_in.try_cash, eur_cash=sale_in.eur_cash,
+        usd_cash=sale_in.usd_cash, gbp_cash=sale_in.gbp_cash,
+        
+        try_cc=sale_in.try_cc, eur_cc=sale_in.eur_cc,
+        usd_cc=sale_in.usd_cc, gbp_cc=sale_in.gbp_cc,
+        
+        eur_rate=sale_in.eur_rate,
+        usd_rate=sale_in.usd_rate,
+        gbp_rate=sale_in.gbp_rate,
+        
+        status="pending"
     )
+
     db.add(new_sale)
     db.commit()
-    
-    return {"id": new_sale.id, "message": "Reservation created and waiting for approval.", "status": "pending"}
+    db.refresh(new_sale)
+    return new_sale
 
 
 # ==========================================
-# 2. ONAY MEKANİZMASI VE KOMİSYON DAĞITIMI (SADECE ADMIN VE KASA)
+# 2. SATIŞ ONAYLAMA VE KOMİSYON DAĞITIMI (Sadece Admin ve Kasa)
 # ==========================================
-@router.put("/sales/{sale_id}/approve", response_model=SaleResponse, dependencies=[Depends(RoleChecker(["admin", "kasa"]))])
+@router.put("/sales/{sale_id}/approve", dependencies=[Depends(RoleChecker(["admin", "kasa"]))])
 def approve_sale(
     sale_id: int,
-    db: Session = Depends(get_db), 
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # 1. Çift Tıklama (Race Condition) Engellemesi: FOR UPDATE kilitli çekim
-    sale = db.query(Sale).filter(
-        Sale.id == sale_id,
-        Sale.company_id == current_user.company_id
-    ).with_for_update().first()
-
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.company_id == current_user.company_id).first()
     if not sale:
-        raise HTTPException(status_code=404, detail="Sale not found.")
-    
+        raise HTTPException(status_code=404, detail="Sale not found")
     if sale.status != "pending":
-        raise HTTPException(status_code=400, detail=f"This sale cannot be approved. Current status: {sale.status}")
+        raise HTTPException(status_code=400, detail="Only pending sales can be approved")
+    if sale.is_cancelled:
+        raise HTTPException(status_code=400, detail="Cancelled sales cannot be approved")
 
-    # 2. Statüyü güncelle
+    # Satışı onayla
     sale.status = "approved"
-    total_amount = sale.cash_amount + sale.cc_amount
 
-    # 3. Komisyon Dağıtımı (Kilitli Kur Üzerinden)
     activity = db.query(Activity).filter(Activity.id == sale.activity_id).first()
     
+    # Komisyon kurallarını kontrol et
     if activity and activity.is_percentage_eligible:
         rules = db.query(PercentageRule).filter(PercentageRule.activity_id == activity.id).all()
-        for rule in rules:
-            calculated_cut = (total_amount * rule.percentage_rate) / Decimal('100.00')
-            earning = EarningsLog(
-                company_id=current_user.company_id,
-                sale_id=sale.id,
-                user_id=rule.user_id,
-                calculated_amount=calculated_cut,
-                currency=sale.currency,
-                exchange_rate=sale.exchange_rate, # Anlaşılan kur korundu
-                description=f"Auto Commission - {activity.name} ({rule.percentage_rate}%)"
-            )
-            db.add(earning)
+        
+        # Satışın içindeki tüm döviz toplamlarını bir listeye alalım
+        currencies = [
+            ("TRY", (sale.try_cash or 0) + (sale.try_cc or 0), Decimal('1.0')),
+            ("EUR", (sale.eur_cash or 0) + (sale.eur_cc or 0), sale.eur_rate),
+            ("USD", (sale.usd_cash or 0) + (sale.usd_cc or 0), sale.usd_rate),
+            ("GBP", (sale.gbp_cash or 0) + (sale.gbp_cc or 0), sale.gbp_rate)
+        ]
 
-    # 4. Kota Kontrolü ve Bonus (Satışı giren infocu için hedefe bakılır)
-    infocu_user = db.query(User).filter(User.id == sale.added_by_user_id).with_for_update().first()
-    
-    if infocu_user and infocu_user.target_revenue and not infocu_user.is_target_reached:
-        # PENDING olanlar değil, sadece APPROVED olan iptal edilmemiş satışlar hedefe sayılır
-        total_revenue_result = db.query(func.sum(Sale.cash_amount + Sale.cc_amount)).filter(
-            Sale.added_by_user_id == infocu_user.id,
-            Sale.is_cancelled == False,
-            Sale.status == "approved"
-        ).scalar()
-        
-        current_cumulative = total_revenue_result or Decimal('0.00')
-        
-        if current_cumulative >= infocu_user.target_revenue:
-            infocu_user.is_target_reached = True
-            bonus_earning = EarningsLog(
-                company_id=infocu_user.company_id,
-                sale_id=sale.id,
-                user_id=infocu_user.id,
-                calculated_amount=Decimal('2000.00'),
-                currency=sale.currency,
-                exchange_rate=sale.exchange_rate,
-                description="Target Revenue Bonus Reached"
-            )
-            db.add(bonus_earning)
+        for rule in rules:
+            for curr_name, total_amount, rate in currencies:
+                if total_amount > 0:
+                    # O döviz için komisyon hesapla
+                    commission = Decimal(str(total_amount)) * (rule.percentage_rate / Decimal('100.0'))
+                    
+                    new_earning = EarningsLog(
+                        company_id=sale.company_id,
+                        user_id=rule.user_id,
+                        sale_id=sale.id,
+                        currency=curr_name,
+                        calculated_amount=commission,
+                        exchange_rate=rate,
+                        description=f"Otomatik komisyon - {activity.name} (%{rule.percentage_rate})"
+                    )
+                    db.add(new_earning)
 
     db.commit()
-    return {"id": sale.id, "message": "Sale approved and commissions distributed.", "status": sale.status}
+    db.refresh(sale)
+    return {"message": "Sale approved and commissions distributed per currency successfully", "sale_id": sale.id}
 
 
 # ==========================================
-# 3. GET İŞLEMLERİ 
+# 3. SATIŞ LİSTELEME
 # ==========================================
-@router.get("/sales/", response_model=List[SaleListResponse], dependencies=[Depends(RoleChecker(["infocu", "admin", "kasa"]))])
+@router.get("/sales/", response_model=List[SaleResponse], dependencies=[Depends(RoleChecker(["admin", "kasa", "infocu", "yuzdeci"]))])
 def get_sales(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
-    status_filter: str = Query(None, description="Filter by status: pending, approved, cancelled"),
-    db: Session = Depends(get_db), 
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    query = db.query(Sale)
+    query = db.query(Sale).filter(Sale.company_id == current_user.company_id)
 
-    # Parametre ile filtreleme imkanı (Frontend'de "Bekleyenler" tablosu için)
-    if status_filter:
-        query = query.filter(Sale.status == status_filter)
-
+    # İnfocular sadece kendi girdikleri satışları görebilir
     if current_user.role == "infocu":
         query = query.filter(Sale.added_by_user_id == current_user.id)
-    
-    sales = query.order_by(Sale.created_at.desc()).offset(skip).limit(limit).all()
-    return sales
+
+    return query.order_by(Sale.id.desc()).offset(skip).limit(limit).all()
 
 
-@router.get("/earnings/", response_model=List[EarningsListResponse], dependencies=[Depends(RoleChecker(["infocu", "admin", "kasa", "yuzdeci"]))])
-def get_earnings(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=500),
-    db: Session = Depends(get_db), 
+# ==========================================
+# 4. SATIŞ İPTALİ (SOFT DELETE)
+# ==========================================
+@router.delete("/sales/{sale_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(RoleChecker(["admin", "kasa"]))])
+def cancel_sale(
+    sale_id: int,
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    query = db.query(EarningsLog)
-
-    if current_user.role in ["infocu", "yuzdeci"]:
-        query = query.filter(EarningsLog.user_id == current_user.id)
+    sale = db.query(Sale).filter(Sale.id == sale_id, Sale.company_id == current_user.company_id).first()
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
         
-    earnings = query.order_by(EarningsLog.created_at.desc()).offset(skip).limit(limit).all()
-    return earnings
+    sale.is_cancelled = True
+    sale.status = "cancelled"
+    
+    # İptal edilen satışın hakedişleri de silinir (Eğer approved statüsünden iptale çekildiyse)
+    db.query(EarningsLog).filter(EarningsLog.sale_id == sale.id).delete()
+    
+    db.commit()
+    return None

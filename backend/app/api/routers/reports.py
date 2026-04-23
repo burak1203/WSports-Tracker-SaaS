@@ -139,7 +139,10 @@ async def get_dashboard_data(
         SELECT 
             TO_CHAR(s.created_at, 'YYYY-MM-DD') AS date,
             a.name AS activity_name,
-            (s.cash_amount + s.cc_amount) * s.exchange_rate AS base_revenue
+            (s.try_cash + s.try_cc) + 
+            ((s.eur_cash + s.eur_cc) * s.eur_rate) + 
+            ((s.usd_cash + s.usd_cc) * s.usd_rate) + 
+            ((s.gbp_cash + s.gbp_cc) * s.gbp_rate) AS base_revenue
         FROM sales s
         JOIN activities a ON s.activity_id = a.id
         WHERE s.created_at::date >= :s AND s.created_at::date <= :e 
@@ -147,7 +150,11 @@ async def get_dashboard_data(
     """)
     
     ex_query = text("""
-        SELECT (cash_amount + cc_amount) * exchange_rate AS base_expense
+        SELECT 
+            (try_cash + try_cc) + 
+            ((eur_cash + eur_cc) * eur_rate) + 
+            ((usd_cash + usd_cc) * usd_rate) + 
+            ((gbp_cash + gbp_cc) * gbp_rate) AS base_expense
         FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND company_id = :cid
     """)
 
@@ -178,15 +185,27 @@ async def get_monthly_summary(
 ):
     # SQL sorgularına "company_id = :cid" filtresi eklendi!
     s_query = text("""
-        SELECT currency, cash_amount AS raw_cash, cc_amount AS raw_cc, exchange_rate
-        FROM sales WHERE created_at::date >= :s AND created_at::date <= :e 
-        AND is_cancelled = false AND status = 'approved' AND company_id = :cid
+        SELECT 'TRY' as currency, try_cash AS raw_cash, try_cc AS raw_cc, 1.0 AS exchange_rate
+        FROM sales WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND status = 'approved' AND company_id = :cid AND (try_cash > 0 OR try_cc > 0)
+        UNION ALL
+        SELECT 'EUR' as currency, eur_cash AS raw_cash, eur_cc AS raw_cc, eur_rate AS exchange_rate
+        FROM sales WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND status = 'approved' AND company_id = :cid AND (eur_cash > 0 OR eur_cc > 0)
+        UNION ALL
+        SELECT 'USD' as currency, usd_cash AS raw_cash, usd_cc AS raw_cc, usd_rate AS exchange_rate
+        FROM sales WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND status = 'approved' AND company_id = :cid AND (usd_cash > 0 OR usd_cc > 0)
+        UNION ALL
+        SELECT 'GBP' as currency, gbp_cash AS raw_cash, gbp_cc AS raw_cc, gbp_rate AS exchange_rate
+        FROM sales WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND status = 'approved' AND company_id = :cid AND (gbp_cash > 0 OR gbp_cc > 0)
     """)
     
     ex_query = text("""
-        SELECT currency, (cash_amount + cc_amount) * exchange_rate AS base_expense
-        FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e 
-        AND is_cancelled = false AND company_id = :cid
+        SELECT 'TRY' as currency, (try_cash + try_cc) AS base_expense FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND company_id = :cid AND (try_cash > 0 OR try_cc > 0)
+        UNION ALL
+        SELECT 'EUR' as currency, (eur_cash + eur_cc) * eur_rate AS base_expense FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND company_id = :cid AND (eur_cash > 0 OR eur_cc > 0)
+        UNION ALL
+        SELECT 'USD' as currency, (usd_cash + usd_cc) * usd_rate AS base_expense FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND company_id = :cid AND (usd_cash > 0 OR usd_cc > 0)
+        UNION ALL
+        SELECT 'GBP' as currency, (gbp_cash + gbp_cc) * gbp_rate AS base_expense FROM expenses WHERE created_at::date >= :s AND created_at::date <= :e AND is_cancelled = false AND company_id = :cid AND (gbp_cash > 0 OR gbp_cc > 0)
     """)
 
     ea_query = text("""
