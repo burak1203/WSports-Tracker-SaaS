@@ -16,22 +16,25 @@ def create_expense(
 ):
     new_expense = Expense(
         company_id=current_user.company_id,
-        added_by_user_id=current_user.id,
         category=expense_in.category,
         description=expense_in.description,
-        
         try_cash=expense_in.try_cash, eur_cash=expense_in.eur_cash,
         usd_cash=expense_in.usd_cash, gbp_cash=expense_in.gbp_cash,
-        
         try_cc=expense_in.try_cc, eur_cc=expense_in.eur_cc,
         usd_cc=expense_in.usd_cc, gbp_cc=expense_in.gbp_cc,
-        
-        eur_rate=expense_in.eur_rate, usd_rate=expense_in.usd_rate, gbp_rate=expense_in.gbp_rate
+        eur_rate=expense_in.eur_rate,
+        usd_rate=expense_in.usd_rate,
+        gbp_rate=expense_in.gbp_rate
     )
+    
     db.add(new_expense)
-    db.commit()
-    db.refresh(new_expense)
-    return new_expense
+    try:
+        db.commit()
+        db.refresh(new_expense)
+        return new_expense
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gider kaydı sırasında hata: {str(e)}")
 
 @router.get("/expenses/", response_model=List[ExpenseResponse])
 def get_expenses(

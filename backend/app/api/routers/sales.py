@@ -33,7 +33,8 @@ def create_sale(
     new_sale = Sale(
         company_id=current_user.company_id,
         activity_id=activity.id,
-        added_by_user_id=current_user.id,
+        # Frontend'den gelen ID varsa onu, yoksa işlemi yapanın kendi ID'sini kullan
+        added_by_user_id=sale_in.added_by_user_id if sale_in.added_by_user_id else current_user.id,
         
         try_cash=sale_in.try_cash, eur_cash=sale_in.eur_cash,
         usd_cash=sale_in.usd_cash, gbp_cash=sale_in.gbp_cash,
@@ -91,9 +92,7 @@ def approve_sale(
         for rule in rules:
             for curr_name, total_amount, rate in currencies:
                 if total_amount > 0:
-                    # O döviz için komisyon hesapla
                     commission = Decimal(str(total_amount)) * (rule.percentage_rate / Decimal('100.0'))
-                    
                     new_earning = EarningsLog(
                         company_id=sale.company_id,
                         user_id=rule.user_id,
@@ -105,10 +104,13 @@ def approve_sale(
                     )
                     db.add(new_earning)
 
-    db.commit()
-    db.refresh(sale)
-    return {"message": "Sale approved and commissions distributed per currency successfully", "sale_id": sale.id}
-
+    try:
+        db.commit()
+        db.refresh(sale)
+        return {"message": "Sale approved and commissions distributed successfully", "sale_id": sale.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Database transaction failed: {str(e)}")
 
 # ==========================================
 # 3. SATIŞ LİSTELEME
@@ -145,8 +147,12 @@ def cancel_sale(
     sale.is_cancelled = True
     sale.status = "cancelled"
     
-    # İptal edilen satışın hakedişleri de silinir (Eğer approved statüsünden iptale çekildiyse)
+    # İptal edilen satışın hakedişleri de silinir
     db.query(EarningsLog).filter(EarningsLog.sale_id == sale.id).delete()
     
-    db.commit()
-    return None
+    try:
+        db.commit()
+        return None
+    except Exception as e:
+        db.rollback() # Eğer hakedişler silinirken hata çıkarsa satışı iptal etme, geri dön!
+        raise HTTPException(status_code=500, detail=f"Database transaction failed: {str(e)}")

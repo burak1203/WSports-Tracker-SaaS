@@ -42,4 +42,13 @@ def login(request: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(
             "license_exp": license_exp_timestamp # Yeni Eklenen Veri
         }
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token, 
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "username": user.full_name, # Girişte username olarak full_name kullanmışsın, o yüzden eşitledik
+            "full_name": user.full_name,
+            "role": user.role
+        }
+    }

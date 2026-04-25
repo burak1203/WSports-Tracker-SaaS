@@ -6,10 +6,9 @@ from app.models.models import User
 from app.schemas.schemas import UserCreate, UserResponse, UserUpdate
 from app.core.security import get_password_hash
 
-# Uç noktaların tamamı Admin rolüyle mühürlendi
-router = APIRouter(tags=["Users"], dependencies=[Depends(RoleChecker(["admin"]))])
+router = APIRouter(tags=["Users"])
 
-@router.post("/users/", response_model=UserResponse)
+@router.post("/users/", response_model=UserResponse, dependencies=[Depends(RoleChecker(["admin"]))])
 def create_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
@@ -43,7 +42,7 @@ def create_user(
 # ==========================================
 # KULLANICI LİSTELEME (GET)
 # ==========================================
-@router.get("/users/", response_model=list[UserResponse])
+@router.get("/users/", response_model=list[UserResponse], dependencies=[Depends(RoleChecker(["admin", "infocu", "kasa", "yuzdeci"]))])
 def get_users(
     skip: int = 0,
     limit: int = 100,
@@ -59,7 +58,7 @@ def get_users(
 # ==========================================
 # KULLANICI SİLME (SOFT DELETE)
 # ==========================================
-@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(RoleChecker(["admin"]))])
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
@@ -82,7 +81,7 @@ def delete_user(
     return None
 
 # USER UPDATE
-@router.put("/users/{user_id}", response_model=UserResponse)
+@router.put("/users/{user_id}", response_model=UserResponse, dependencies=[Depends(RoleChecker(["admin"]))])
 def update_user(
     user_id: int,
     user_in: UserUpdate,

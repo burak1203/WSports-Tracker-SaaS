@@ -1,39 +1,37 @@
-# main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from app.api.routers import auth, sales, reports, users, activities, expenses, percentage_rules
-from app.core.config import settings
+from fastapi.responses import JSONResponse
+from app.api.routers import auth, users, activities, sales, reports, expenses, percentage_rules
 
-app = FastAPI(
-    title="WSports Tracker SaaS API",
-    description="Su sporları işletmeleri için RLS korumalı yönetim sistemi.",
-    version="1.0.0"
-)
+app = FastAPI(title="WSports Tracker API", version="1.0.0")
 
-# 1. PERFORMANS: GZip Sıkıştırması
-# Minimum 1000 byte üzerindeki yanıtları sıkıştırarak ağ(network) darboğazını engeller.
-app.add_middleware(GZipMiddleware, minimum_size=1000)
+# GÜVENLİK: Sadece kendi frontend'imizden gelen isteklere izin ver
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
 
-# 2. GÜVENLİK: Dinamik CORS Koruması
-# Sadece .env dosyasında belirtilen domainlerden (Örn: localhost:5173 veya frontend sunucusu) istek kabul eder.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins, 
+    allow_origins=origins, # "*" yerine kısıtlı liste
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Router'ların Sisteme Bağlanması
-app.include_router(auth.router, prefix="/api/auth")
-app.include_router(sales.router, prefix="/api")
-app.include_router(reports.router, prefix="/api")
+# Global Hata Yakalayıcı (Ham hataları gizle)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Sunucu tarafında beklenmedik bir hata oluştu. Lütfen sistem yöneticisine danışın."},
+    )
+
+# Rotalar
+app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(activities.router, prefix="/api")
+app.include_router(sales.router, prefix="/api")
+app.include_router(reports.router, prefix="/api")
 app.include_router(expenses.router, prefix="/api")
 app.include_router(percentage_rules.router, prefix="/api")
-
-@app.get("/")
-def root():
-    return {"status": "ok", "message": "API is running securely."}

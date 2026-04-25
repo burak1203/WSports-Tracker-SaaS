@@ -12,13 +12,18 @@ router = APIRouter(tags=["Activities"])
 # 1. GET UCU: (İnfocu, Kasa, Yüzdeci, Admin hepsi okuyabilir)
 @router.get("/activities/", response_model=List[ActivityResponse], dependencies=[Depends(RoleChecker(["admin", "infocu", "kasa", "yuzdeci"]))])
 def get_activities(
+    include_inactive: bool = False, # YENİ PARAMETRE (Varsayılan: Sadece aktifler)
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    return db.query(Activity).filter(
-        Activity.company_id == current_user.company_id,
-        Activity.is_active == True
-    ).all()
+    query = db.query(Activity).filter(Activity.company_id == current_user.company_id)
+    
+    # Eğer include_inactive False ise sadece aktifleri getir (Satış sepeti için)
+    # True ise hepsini getir (Admin paneli için)
+    if not include_inactive:
+        query = query.filter(Activity.is_active == True)
+        
+    return query.all()
 
 
 # 2. POST UCU: (SADECE ADMIN)

@@ -29,13 +29,21 @@ class PerformanceReportResponse(BaseModel):
     end_date: date
     data: List[PerformanceSummaryResponse]
 
+class UserInfo(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    role: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: UserInfo  # Frontend'in beklediği kullanıcı bilgisi eklendi
 
 class SaleCreate(BaseModel):
     activity_id: int
-    # Eski currency, cash_amount vs. SİLİNDİ. Yerine bunlar geldi:
+    added_by_user_id: Optional[int] = None  # Frontend'den gelen infocu ID'si (Opsiyonel)
+    
     try_cash: Optional[Decimal] = Decimal('0.00')
     eur_cash: Optional[Decimal] = Decimal('0.00')
     usd_cash: Optional[Decimal] = Decimal('0.00')
@@ -46,7 +54,6 @@ class SaleCreate(BaseModel):
     usd_cc: Optional[Decimal] = Decimal('0.00')
     gbp_cc: Optional[Decimal] = Decimal('0.00')
 
-    # Frontend'in o anki kurları da göndermesi gerekecek
     eur_rate: Decimal
     usd_rate: Decimal
     gbp_rate: Decimal

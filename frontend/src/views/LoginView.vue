@@ -66,12 +66,16 @@ const handleLogin = async () => {
   isLoading.value = true
   
   try {
-    // Backend OAuth2 Form Data beklediği için veriyi URLSearchParams ile sarıyoruz
+    // Backend OAuth2 Form Data beklediği için form verisini eksiksiz ve string olarak gönderiyoruz
     const params = new URLSearchParams()
+    params.append('grant_type', 'password')
     params.append('username', username.value)
     params.append('password', password.value)
+    params.append('scope', '')
+    params.append('client_id', '')
+    params.append('client_secret', '')
 
-    const response = await axios.post('/auth/login', params, {
+    const response = await axios.post('/auth/login', params.toString(), {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       }
