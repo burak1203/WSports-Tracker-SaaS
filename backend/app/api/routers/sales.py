@@ -79,7 +79,8 @@ def approve_sale(
     
     # Komisyon kurallarını kontrol et
     if activity and activity.is_percentage_eligible:
-        rules = db.query(PercentageRule).filter(PercentageRule.activity_id == activity.id).all()
+        # Kuralları ve kural sahiplerinin rollerini birlikte çekiyoruz
+        rules_query = db.query(PercentageRule, User.role).join(User, PercentageRule.user_id == User.id).filter(PercentageRule.activity_id == activity.id).all()
         
         # Satışın içindeki tüm döviz toplamlarını bir listeye alalım
         currencies = [
@@ -89,20 +90,25 @@ def approve_sale(
             ("GBP", (sale.gbp_cash or 0) + (sale.gbp_cc or 0), sale.gbp_rate)
         ]
 
-        for rule in rules:
-            for curr_name, total_amount, rate in currencies:
-                if total_amount > 0:
-                    commission = Decimal(str(total_amount)) * (rule.percentage_rate / Decimal('100.0'))
-                    new_earning = EarningsLog(
-                        company_id=sale.company_id,
-                        user_id=rule.user_id,
-                        sale_id=sale.id,
-                        currency=curr_name,
-                        calculated_amount=commission,
-                        exchange_rate=rate,
-                        description=f"Otomatik komisyon - {activity.name} (%{rule.percentage_rate})"
-                    )
-                    db.add(new_earning)
+        for rule, user_role in rules_query:
+            # KOMİSYON FİLTRESİ (MANTIK HATASININ ÇÖZÜMÜ)
+            # 1. Kuralın sahibi, satışı yapan kişiyse (infocu kendi satışından pay alır)
+            # 2. Kuralın sahibi genel bir 'yuzdeci' ise (satışı kim yaparsa yapsın pay alır)
+            if rule.user_id == sale.added_by_user_id or user_role == "yuzdeci":
+                
+                for curr_name, total_amount, rate in currencies:
+                    if total_amount > 0:
+                        commission = Decimal(str(total_amount)) * (rule.percentage_rate / Decimal('100.0'))
+                        new_earning = EarningsLog(
+                            company_id=sale.company_id,
+                            user_id=rule.user_id,
+                            sale_id=sale.id,
+                            currency=curr_name,
+                            calculated_amount=commission,
+                            exchange_rate=rate,
+                            description=f"Otomatik komisyon - {activity.name} (%{rule.percentage_rate})"
+                        )
+                        db.add(new_earning)
 
     try:
         db.commit()

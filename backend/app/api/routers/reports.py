@@ -1,6 +1,6 @@
 import io
 from fastapi.responses import StreamingResponse
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from datetime import date
@@ -18,7 +18,7 @@ from app.schemas.schemas import (
     DashboardResponse
 )
 
-router = APIRouter(tags=["Reports"], dependencies=[Depends(RoleChecker(["admin"]))])
+router = APIRouter(tags=["Reports"])
 
 # =========================================================
 # CPU-BOUND PANDAS İŞLEMLERİ (TİCARİ MANTIK DÜZELTİLDİ)
@@ -127,12 +127,17 @@ def process_dashboard(sales_data: list, expenses_data: list, earnings_data: list
         "activity_share": activity_share
     }
 
-@router.get("/reports/dashboard", response_model=DashboardResponse)
+# =========================================================
+# API UÇ NOKTALARI 
+# =========================================================
+
+# ADMİN YETKİSİ EKLENDİ
+@router.get("/reports/dashboard", response_model=DashboardResponse, dependencies=[Depends(RoleChecker(["admin"]))])
 async def get_dashboard_data(
     start_date: date = Query(...),
     end_date: date = Query(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user) # YENİ EKLENEN SATIR
+    current_user: User = Depends(get_current_active_user)
 ):
     # Dashboard SQL sorgularına da "company_id = :cid" eklendi!
     s_query = text("""
@@ -172,16 +177,13 @@ async def get_dashboard_data(
     
     return result
 
-# =========================================================
-# API UÇ NOKTALARI 
-# =========================================================
-
-@router.get("/reports/monthly", response_model=MonthlyReportResponse)
+# ADMİN YETKİSİ EKLENDİ
+@router.get("/reports/monthly", response_model=MonthlyReportResponse, dependencies=[Depends(RoleChecker(["admin"]))])
 async def get_monthly_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user) # YENİ EKLENEN SATIR
+    current_user: User = Depends(get_current_active_user)
 ):
     # SQL sorgularına "company_id = :cid" filtresi eklendi!
     s_query = text("""
@@ -214,7 +216,6 @@ async def get_monthly_summary(
         AND company_id = :cid
     """)
 
-    # current_user.company_id parametre olarak gönderiliyor
     s_rows = db.execute(s_query, {"s": start_date, "e": end_date, "cid": current_user.company_id}).mappings().all()
     ex_rows = db.execute(ex_query, {"s": start_date, "e": end_date, "cid": current_user.company_id}).mappings().all()
     ea_rows = db.execute(ea_query, {"s": start_date, "e": end_date, "cid": current_user.company_id}).mappings().all()
@@ -224,8 +225,8 @@ async def get_monthly_summary(
     
     return {"start_date": start_date, "end_date": end_date, "data": result}
 
-
-@router.get("/reports/performance", response_model=PerformanceReportResponse)
+# ADMİN YETKİSİ EKLENDİ
+@router.get("/reports/performance", response_model=PerformanceReportResponse, dependencies=[Depends(RoleChecker(["admin"]))])
 async def get_performance_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -315,7 +316,8 @@ def generate_performance_excel(sales_data: list, earnings_data: list) -> io.Byte
 # API UÇ NOKTALARI 
 # =========================================================
 
-@router.get("/reports/monthly/export")
+# ADMİN YETKİSİ EKLENDİ
+@router.get("/reports/monthly/export", dependencies=[Depends(RoleChecker(["admin"]))])
 async def export_monthly_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -340,8 +342,8 @@ async def export_monthly_summary(
         headers={"Content-Disposition": f"attachment; filename=monthly_summary_{start_date}_to_{end_date}.xlsx"}
     )
 
-
-@router.get("/reports/performance/export")
+# ADMİN YETKİSİ EKLENDİ
+@router.get("/reports/performance/export", dependencies=[Depends(RoleChecker(["admin"]))])
 async def export_performance_summary(
     start_date: date = Query(...),
     end_date: date = Query(...),
@@ -374,3 +376,65 @@ async def export_performance_summary(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=performance_summary_{start_date}_to_{end_date}.xlsx"}
     )
+
+@router.get("/reports/me/earnings")
+def get_my_earnings(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    if current_user.role not in ["infocu", "yuzdeci"]:
+        raise HTTPException(status_code=403, detail="Bu veriye sadece saha personeli erişebilir.")
+
+    # 1. Hakediş (Komisyon) Detayları
+    earnings_query = text("""
+        SELECT 
+            currency, 
+            SUM(calculated_amount) as total_commission,
+            SUM(calculated_amount * exchange_rate) as total_try_equivalent
+        FROM earnings_log 
+        WHERE created_at::date >= :s AND created_at::date <= :e 
+        AND company_id = :cid AND user_id = :uid
+        GROUP BY currency
+    """)
+    earnings_rows = db.execute(earnings_query, {
+        "s": start_date, "e": end_date, "cid": current_user.company_id, "uid": current_user.id
+    }).mappings().all()
+
+    # 2. Personelin Sağladığı Toplam Ciro (Sadece iptal edilmemiş onaylı satışlar)
+    revenue_query = text("""
+        SELECT COALESCE(SUM(
+            (s.try_cash + s.try_cc) + 
+            ((s.eur_cash + s.eur_cc) * s.eur_rate) + 
+            ((s.usd_cash + s.usd_cc) * s.usd_rate) + 
+            ((s.gbp_cash + s.gbp_cc) * s.gbp_rate)
+        ), 0) as total_revenue
+        FROM sales s
+        WHERE s.created_at::date >= :s 
+        AND s.created_at::date <= :e 
+        AND s.company_id = :cid
+        AND s.is_cancelled = false
+        AND (
+            s.added_by_user_id = :uid 
+            OR (
+                :role = 'yuzdeci' AND 
+                EXISTS (SELECT 1 FROM earnings_log e WHERE e.sale_id = s.id AND e.user_id = :uid)
+            )
+        )
+    """)
+    revenue_result = db.execute(revenue_query, {
+        "s": start_date, 
+        "e": end_date, 
+        "cid": current_user.company_id, 
+        "uid": current_user.id,
+        "role": current_user.role # Rol bazlı filtreleme için parametre eklendi
+    }).scalar()
+
+    return {
+        "start_date": start_date, 
+        "end_date": end_date, 
+        "target_revenue": current_user.target_revenue or 0,
+        "generated_revenue": revenue_result, # İşletmeye kazandırdığı toplam ciro
+        "data": [dict(r) for r in earnings_rows]
+    }
