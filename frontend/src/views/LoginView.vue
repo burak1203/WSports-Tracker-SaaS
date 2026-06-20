@@ -51,7 +51,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import axios from '@/utils/axios'
+import api from '@/utils/axios'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -75,11 +75,11 @@ const handleLogin = async () => {
     params.append('client_id', '')
     params.append('client_secret', '')
 
-    const response = await axios.post('/auth/login', params.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded'
-      }
-    })
+const response = await api.post('/login', params, {
+  headers: {
+    'Content-Type': 'application/x-www-form-urlencoded'
+  }
+})
 
     // Gelen token ve kullanıcı bilgilerini Pinia'ya ve localStorage'a mühürle
     authStore.setAuth(response.data.access_token, response.data.user)

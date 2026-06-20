@@ -1,38 +1,38 @@
-# docker-compose.yml
-version: '3.8'
-
 services:
-  api:
-    build: ./backend
-    container_name: wsports_api
-    restart: always
-    ports:
-      - "8000:8000"
-    env_file:
-      - ./backend/.env
-    depends_on:
-      - db
-    networks:
-      - wsports_network
-
   db:
-    image: postgres:15-alpine
-    container_name: wsports_tracker_saas_db
+    image: postgres:17-alpine
+    container_name: wsports_db
     restart: always
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 1234 # Canlıda .env'den alınmalıdır
+      POSTGRES_PASSWORD: 1234
       POSTGRES_DB: wsports_tracker_saas_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - wsports_network
 
-networks:
-  wsports_network:
-    driver: bridge
+  backend:
+    build: ./backend
+    container_name: wsports_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:1234@db:5432/wsports_tracker_saas_db
+    depends_on:
+      - db
+
+  frontend:
+    build: ./frontend
+    container_name: wsports_frontend
+    restart: always
+    ports:
+      - "8080:80" # Sol taraf senin tarayıcın (Windows), sağ taraf Nginx portu (Docker içi)
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000 # Eğer Vue projesinde Vite kullanıyorsan API adresini belirtmek için
 
 volumes:
   postgres_data:

@@ -8,7 +8,7 @@ from app.core.security import SECRET_KEY, ALGORITHM
 from app.models.models import User
 import time
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
 def get_current_user_token_data(token: str = Depends(oauth2_scheme)) -> dict:
     credentials_exception = HTTPException(
