@@ -46,11 +46,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: Test Docker Compose Build
       run: |
-        # Konteynerleri sıfırdan inşa et ve arka planda çalıştır
-        docker-compose up -d --build
-        
-        # Konteynerlerin ayakta olup olmadığını kontrol et (Log/Durum çıktısı)
-        docker-compose ps
-        
-        # Sistemi temizle ve kapat (Sunucuyu şişirmemek için)
-        docker-compose down
+        # Tireleri kaldırdık, modern 'docker compose' (V2) kullanıyoruz
+        docker compose up -d --build
+        docker compose ps
+        docker compose down
