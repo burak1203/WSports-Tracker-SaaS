@@ -38,3 +38,19 @@ jobs:
       run: |
         npm ci
         npm run build
+
+  docker-build-test:
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-build]
+    steps:
+    - uses: actions/checkout@v4
+    - name: Test Docker Compose Build
+      run: |
+        # Konteynerleri sıfırdan inşa et ve arka planda çalıştır
+        docker-compose up -d --build
+        
+        # Konteynerlerin ayakta olup olmadığını kontrol et (Log/Durum çıktısı)
+        docker-compose ps
+        
+        # Sistemi temizle ve kapat (Sunucuyu şişirmemek için)
+        docker-compose down
